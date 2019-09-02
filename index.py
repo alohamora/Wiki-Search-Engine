@@ -1,5 +1,6 @@
 import re
 import json
+import os
 import xml.sax
 import Stemmer
 import sys
@@ -167,10 +168,10 @@ def preProcessAndIndex(data_filename, index_folder):
     handler = ContentHandler()
     parser.setContentHandler(handler)
     parser.parse(data_filename)
-    with open(index_folder + "/" + "inverted_index.txt", "w") as fp:
+    with open(os.path.join(index_folder, "inverted_index.txt"), "w") as fp:
         fp.write(json.dumps(Indexer.INVERTED_INDEX))
 
-    with open(index_folder + "/" + "title.txt", "w") as fp:
+    with open(os.path.join(index_folder, "title.txt"), "w") as fp:
         fp.write(json.dumps(handler.pageTitleMapping))
 
 if __name__ == "__main__":

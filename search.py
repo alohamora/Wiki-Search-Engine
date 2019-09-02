@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import sys
@@ -62,9 +63,9 @@ def search(indexFolder, queryFile, outputFile):
     inverted_index = None
     pageTitleMapping = None
     searchResults = []
-    with open(indexFolder + "/" + "inverted_index.txt", "r") as fp:
+    with open(os.path.join(indexFolder, "inverted_index.txt"), "r") as fp:
         inverted_index = json.load(fp)
-    with open(indexFolder + "/" + "title.txt", "r") as fp:
+    with open(os.path.join(indexFolder, "title.txt"), "r") as fp:
         pageTitleMapping = json.load(fp)
     engine = SearchEngine(inverted_index, pageTitleMapping)
     for query in read_file(queryFile):
