@@ -60,7 +60,7 @@ class DocHandler:
             r" ",
             data,
         )  # removing special characters
-        return data.split()
+        return re.split("\s+", data)
 
     def removeStopWords(self, data):
         return [w for w in data if w not in self.stopWords]
@@ -94,7 +94,6 @@ class DocHandler:
         return self.processRawText(text)
 
     def extractBody(self, text):
-        data = re.sub(r"\r\n", " ", text)
         data = re.sub(r"\{\{.*\}\}", r" ", text)
         return self.processRawText(data)
 
