@@ -1,22 +1,28 @@
 import re
+import copy
 import json
 import os
 import xml.sax
 import Stemmer
 import sys
+from math import ceil
+from multiprocessing import Process
 from collections import defaultdict
 from nltk.corpus import stopwords
 
 
 class ContentHandler(xml.sax.ContentHandler):
-    def __init__(self):
+    def __init__(self, index_folder):
         super().__init__()
         self.tag = ""
         self.title = ""
         self.text = ""
         self.pages = 0
-        self.docHandler = DocHandler()
+        self.indexerProcess = None
+        self.indexFolder = index_folder
+        self.xmlData = []
         self.pageTitleMapping = {}
+        self.pageBreakLimit = int(20000)
 
     def startElement(self, name, attrs):
         self.tag = name
@@ -25,10 +31,12 @@ class ContentHandler(xml.sax.ContentHandler):
 
     def endElement(self, name):
         if name == "page":
-            parsedObjects = self.docHandler.processPage(self.title, self.text)
             self.pageTitleMapping[self.pages] = self.title
-            Indexer.createIndex(parsedObjects, self.pages)
+            self.xmlData.append((self.title, self.text, self.pages))
             self.resetFields()
+            if self.pages % self.pageBreakLimit == 0:
+                self.createIndexerProcess()
+
 
     def characters(self, content):
         if self.tag == "title" or self.tag == "text":
@@ -39,6 +47,22 @@ class ContentHandler(xml.sax.ContentHandler):
         self.title = ""
         self.text = ""
 
+    def createIndexerProcess(self):
+        if self.indexerProcess is not None:
+            self.indexerProcess.join()
+        
+        if len(self.xmlData) > 0:
+            print("[wiki-engine-indexer]: Epoch {0} completed...{1} pages indexed".format(ceil(self.pages / self.pageBreakLimit), self.pages))
+            self.indexerProcess = Indexer(ceil(self.pages / self.pageBreakLimit), copy.deepcopy(self.xmlData), self.indexFolder, copy.deepcopy(self.pageTitleMapping))
+            self.xmlData = []
+            self.pageTitleMapping = {}
+            self.indexerProcess.start()
+
+    def endProcessing(self):
+        self.createIndexerProcess()
+        self.indexerProcess.join()
+        print("[wiki-engine-indexer]: Finished indexing data")
+        print("[wiki-engine-indexer]: Total pages indexed - {}".format(self.pages))
 
 class DocHandler:
     def __init__(self):
@@ -135,23 +159,40 @@ class DocHandler:
                 links.append(line)
         return self.processRawText(" ".join(links))
 
-class Indexer:
-    INVERTED_INDEX = defaultdict(list)
+class Indexer(Process):
     WORD_ORDER = ["t", "b", "i", "c", "l", "r"]
 
-    @classmethod
-    def createIndex(cls, parsedWords, docInd):
+    def __init__(self, offset, xmlData, indexFolder, pageTitleMapping):
+        super().__init__()
+        self.offset = offset
+        self.xmlData = xmlData
+        self.docHandler = DocHandler()
+        self.indexFolder = indexFolder
+        self.pageTitleMapping = pageTitleMapping
+        self.invertedIndex = defaultdict(list)
+
+    def run(self):
+        for title, text, docInd in self.xmlData:
+            parsedObjects = self.docHandler.processPage(title, text)
+            self.createIndex(parsedObjects, docInd)
+        with open(os.path.join(self.indexFolder, "index{}.txt".format(self.offset)), "w") as fp:
+            fp.write(json.dumps(self.invertedIndex))
+
+        with open(os.path.join(self.indexFolder, "title{}.txt".format(self.offset)), "w") as fp:
+            fp.write(json.dumps(self.pageTitleMapping))
+
+    def createIndex(self, parsedWords, docInd):
         words = defaultdict(int)       
         parsedDicts = []
         for __type in parsedWords:
-            parsedDicts.append(cls.createDict(words, cls.createDict(words, __type)))
+            parsedDicts.append(self.createDict(words, __type))
     
         for word in words.keys():
             indexString = str(docInd)
             for i in range(len(parsedDicts)):
                 if parsedDicts[i][word]:
-                    indexString += cls.WORD_ORDER[i] + str(parsedDicts[i][word])
-            cls.INVERTED_INDEX[word].append(indexString)
+                    indexString += self.WORD_ORDER[i] + str(parsedDicts[i][word])
+            self.invertedIndex[word].append(indexString)
     
     @staticmethod
     def createDict(wordDict, bagOfWords):
@@ -164,14 +205,11 @@ class Indexer:
 def preProcessAndIndex(data_filename, index_folder):
     parser = xml.sax.make_parser()
     parser.setFeature(xml.sax.handler.feature_namespaces, 0)
-    handler = ContentHandler()
+    handler = ContentHandler(index_folder)
     parser.setContentHandler(handler)
     parser.parse(data_filename)
-    with open(os.path.join(index_folder, "inverted_index.txt"), "w") as fp:
-        fp.write(json.dumps(Indexer.INVERTED_INDEX))
+    handler.endProcessing()
 
-    with open(os.path.join(index_folder, "title.txt"), "w") as fp:
-        fp.write(json.dumps(handler.pageTitleMapping))
 
 if __name__ == "__main__":
     preProcessAndIndex(sys.argv[1], sys.argv[2])
