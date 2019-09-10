@@ -23,7 +23,7 @@ class DocHandler:
             r" ",
             data,
         )  # removing special characters
-        return re.split("\s+", data)
+        return data.split()
 
     def removeStopWords(self, data):
         return [w for w in data if w not in self.stopWords]
@@ -48,7 +48,7 @@ class DocHandler:
         return (title, body, info, categories, links, references)
 
     def processRawText(self, text):
-        data = [word for word in self.tokenize(text) if word != ""]
+        data = self.tokenize(text)
         data = self.removeStopWords(data)
         data = self.stem(data)
         return data

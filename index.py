@@ -69,6 +69,7 @@ class ContentHandler(xml.sax.ContentHandler):
         self.indexerProcess.join()
         print("[wiki-engine-indexer]: Finished indexing data")
         print("[wiki-engine-indexer]: Total pages indexed - {}".format(self.pages))
+        return ceil(self.pages / self.pageBreakLimit)
 
 
 class Indexer(Process):
@@ -114,7 +115,7 @@ class Indexer(Process):
     def sortAndConvertDict(dictionary):
         ret = ""
         for key in sorted(dictionary.keys()):
-            ret += "{0}: {1}\n".format(key, dictionary[key])
+            ret += "{0}:{1}\n".format(key, dictionary[key])
         return ret
 
     @staticmethod
@@ -132,9 +133,9 @@ def preProcessAndIndex(data_filename, index_folder):
     handler = ContentHandler(index_folder)
     parser.setContentHandler(handler)
     parser.parse(data_filename)
-    handler.endProcessing()
+    fileCount = handler.endProcessing()
     print("------Initial Index files created, starting merge process------")
-    merger = MergeIndex(index_folder, handler.pages, handler.pageBreakLimit)
+    merger = MergeIndex(index_folder, fileCount)
     merger.mergeIndex()
 
 
