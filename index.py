@@ -1,15 +1,11 @@
-import re
 import copy
-import json
 import os
 import xml.sax
-import Stemmer
 import sys
 from math import ceil
 from multiprocessing import Process
 from collections import defaultdict
-from nltk.corpus import stopwords
-
+from preprocessing import DocHandler
 
 class ContentHandler(xml.sax.ContentHandler):
     def __init__(self, index_folder):
@@ -31,7 +27,7 @@ class ContentHandler(xml.sax.ContentHandler):
 
     def endElement(self, name):
         if name == "page":
-            self.pageTitleMapping[self.pages] = self.title
+            self.pageTitleMapping[self.pages] = self.title.strip(" ").strip("\n")
             self.xmlData.append((self.title, self.text, self.pages))
             self.resetFields()
             if self.pages % self.pageBreakLimit == 0:
@@ -64,100 +60,6 @@ class ContentHandler(xml.sax.ContentHandler):
         print("[wiki-engine-indexer]: Finished indexing data")
         print("[wiki-engine-indexer]: Total pages indexed - {}".format(self.pages))
 
-class DocHandler:
-    def __init__(self):
-        self.stemmer = Stemmer.Stemmer("english")
-        self.stopWords = set(stopwords.words("english"))
-
-    def tokenize(self, data):
-        data = data.encode("ascii", errors="ignore").decode()
-        data = re.sub(
-            r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\), ]|(?:%[0-9a-fA-F][0-9a-fA-F]))+",
-            r" ",
-            data,
-        )  # removing urls
-        data = re.sub(
-            r"&nbsp;|&lt;|&gt;|&amp;|&quot;|&apos;", r" ", data
-        )  # removing html entities
-        data = re.sub(
-            r"\—|\%|\$|\'|\||\.|\*|\[|\]|\:|\;|\,|\{|\}|\(|\)|\=|\+|\-|\_|\#|\!|\`|\"|\?|\/|\>|\<|\&|\\|\u2013|\n",
-            r" ",
-            data,
-        )  # removing special characters
-        return re.split("\s+", data)
-
-    def removeStopWords(self, data):
-        return [w for w in data if w not in self.stopWords]
-
-    def stem(self, data):
-        return self.stemmer.stemWords(data)
-
-    def processPage(self, title, text):
-        text = text.lower()
-        data = text.split("==references==")
-        if len(data) == 1:
-            references = []
-            links = []
-            categories = []
-        else:
-            references = self.extractReferences(data[1])
-            links = self.extractExternalLinks(data[1])
-            categories = self.extractCategories(data[1])
-        info = self.extractInfobox(data[0])
-        body = self.extractBody(data[0])
-        title = self.extractTitle(title.lower())
-        return (title, body, info, categories, links, references)
-
-    def processRawText(self, text):
-        data = self.tokenize(text)
-        data = self.removeStopWords(data)
-        data = self.stem(data)
-        return data
-
-    def extractTitle(self, text):
-        return self.processRawText(text)
-
-    def extractBody(self, text):
-        data = re.sub(r"\{\{.*\}\}", r" ", text)
-        return self.processRawText(data)
-
-    def extractInfobox(self, text):
-        data = text.split("\n")
-        infoData = ""
-        infoBoxStarted = False
-        for line in data:
-            if re.match(r"\{\{infobox", line):
-                infoBoxStarted = True
-                infoData += " " + re.sub(r"\{\{infobox(.*)", r"\1", line)
-            elif infoBoxStarted:
-                infoData += " " + line
-                if line == "}}":
-                    infoBoxStarted = False
-        return self.processRawText(infoData)
-
-    def extractReferences(self, text):
-        data = text.split("\n")
-        refs = []
-        for line in data:
-            if re.search(r"<ref", line):
-                refs.append(re.sub(r".*title[\ ]*=[\ ]*([^\|]*).*", r"\1", line))
-        return self.processRawText(" ".join(refs))
-
-    def extractCategories(self, text):
-        data = text.split("\n")
-        categories = []
-        for line in data:
-            if re.match(r"\[\[category", line):
-                categories.append(re.sub(r"\[\[category:(.*)\]\]", r"\1", line))
-        return self.processRawText(" ".join(categories))
-
-    def extractExternalLinks(self, text):
-        data = text.split("\n")
-        links = []
-        for line in data:
-            if re.match(r"\*[\ ]*\[", line):
-                links.append(line)
-        return self.processRawText(" ".join(links))
 
 class Indexer(Process):
     WORD_ORDER = ["t", "b", "i", "c", "l", "r"]
@@ -176,10 +78,10 @@ class Indexer(Process):
             parsedObjects = self.docHandler.processPage(title, text)
             self.createIndex(parsedObjects, docInd)
         with open(os.path.join(self.indexFolder, "index{}.txt".format(self.offset)), "w") as fp:
-            fp.write(json.dumps(self.invertedIndex))
+            fp.write(self.sortAndConvertDict(self.invertedIndex))
 
         with open(os.path.join(self.indexFolder, "title{}.txt".format(self.offset)), "w") as fp:
-            fp.write(json.dumps(self.pageTitleMapping))
+            fp.write(self.sortAndConvertDict(self.pageTitleMapping))
 
     def createIndex(self, parsedWords, docInd):
         words = defaultdict(int)       
@@ -193,7 +95,14 @@ class Indexer(Process):
                 if parsedDicts[i][word]:
                     indexString += self.WORD_ORDER[i] + str(parsedDicts[i][word])
             self.invertedIndex[word].append(indexString)
-    
+
+    @staticmethod
+    def sortAndConvertDict(dictionary):
+        ret = ""
+        for key in sorted(dictionary.keys()):
+            ret += "{0}: {1}\n".format(key, dictionary[key])
+        return ret
+
     @staticmethod
     def createDict(wordDict, bagOfWords):
         __typeDict = defaultdict(int)
