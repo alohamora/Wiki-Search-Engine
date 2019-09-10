@@ -2,6 +2,7 @@ import re
 import Stemmer
 from nltk.corpus import stopwords
 
+
 class DocHandler:
     def __init__(self):
         self.stemmer = Stemmer.Stemmer("english")

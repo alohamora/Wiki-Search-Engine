@@ -6,6 +6,8 @@ from math import ceil
 from multiprocessing import Process
 from collections import defaultdict
 from preprocessing import DocHandler
+from merge import MergeIndex
+
 
 class ContentHandler(xml.sax.ContentHandler):
     def __init__(self, index_folder):
@@ -33,7 +35,6 @@ class ContentHandler(xml.sax.ContentHandler):
             if self.pages % self.pageBreakLimit == 0:
                 self.createIndexerProcess()
 
-
     def characters(self, content):
         if self.tag == "title" or self.tag == "text":
             previous = getattr(self, self.tag)
@@ -46,10 +47,19 @@ class ContentHandler(xml.sax.ContentHandler):
     def createIndexerProcess(self):
         if self.indexerProcess is not None:
             self.indexerProcess.join()
-        
+
         if len(self.xmlData) > 0:
-            print("[wiki-engine-indexer]: Epoch {0} completed...{1} pages indexed".format(ceil(self.pages / self.pageBreakLimit), self.pages))
-            self.indexerProcess = Indexer(ceil(self.pages / self.pageBreakLimit), copy.deepcopy(self.xmlData), self.indexFolder, copy.deepcopy(self.pageTitleMapping))
+            print(
+                "[wiki-engine-indexer]: Epoch {0} completed...{1} pages indexed".format(
+                    ceil(self.pages / self.pageBreakLimit) - 1, self.pages
+                )
+            )
+            self.indexerProcess = Indexer(
+                ceil(self.pages / self.pageBreakLimit) - 1,
+                copy.deepcopy(self.xmlData),
+                self.indexFolder,
+                copy.deepcopy(self.pageTitleMapping),
+            )
             self.xmlData = []
             self.pageTitleMapping = {}
             self.indexerProcess.start()
@@ -77,18 +87,22 @@ class Indexer(Process):
         for title, text, docInd in self.xmlData:
             parsedObjects = self.docHandler.processPage(title, text)
             self.createIndex(parsedObjects, docInd)
-        with open(os.path.join(self.indexFolder, "index{}.txt".format(self.offset)), "w") as fp:
+        with open(
+            os.path.join(self.indexFolder, "index{}.txt".format(self.offset)), "w"
+        ) as fp:
             fp.write(self.sortAndConvertDict(self.invertedIndex))
 
-        with open(os.path.join(self.indexFolder, "title{}.txt".format(self.offset)), "w") as fp:
+        with open(
+            os.path.join(self.indexFolder, "title{}.txt".format(self.offset)), "w"
+        ) as fp:
             fp.write(self.sortAndConvertDict(self.pageTitleMapping))
 
     def createIndex(self, parsedWords, docInd):
-        words = defaultdict(int)       
+        words = defaultdict(int)
         parsedDicts = []
         for __type in parsedWords:
             parsedDicts.append(self.createDict(words, __type))
-    
+
         for word in words.keys():
             indexString = str(docInd)
             for i in range(len(parsedDicts)):
@@ -111,6 +125,7 @@ class Indexer(Process):
             wordDict[word] += 1
         return __typeDict
 
+
 def preProcessAndIndex(data_filename, index_folder):
     parser = xml.sax.make_parser()
     parser.setFeature(xml.sax.handler.feature_namespaces, 0)
@@ -118,6 +133,9 @@ def preProcessAndIndex(data_filename, index_folder):
     parser.setContentHandler(handler)
     parser.parse(data_filename)
     handler.endProcessing()
+    print("------Initial Index files created, starting merge process------")
+    merger = MergeIndex(index_folder, handler.pages, handler.pageBreakLimit)
+    merger.mergeIndex()
 
 
 if __name__ == "__main__":
