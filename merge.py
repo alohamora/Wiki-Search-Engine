@@ -16,8 +16,10 @@ class MergeIndex:
         self.nextFiles = range(fileCount)
         self.indexFolder = indexFolder
         self.fileLines = []
+        self.lastWord = None
         self.count = 0
         self.pageBreakLimit = 100000
+        self.breakWords = []
 
     def mergeIndex(self):
         for count in range(self.fileCount):
@@ -34,14 +36,8 @@ class MergeIndex:
                         ceil(self.count / self.pageBreakLimit) - 1, self.count
                     )
                 )
+        self.endMerge()
 
-        if self.fileLines:
-            self.writeToFile()
-            print(
-                "[wiki-engine-indexer]: Merge process finished...{} words merged".format(
-                    self.count
-                )
-            )
 
     def pushWords(self):
         for fileInd in self.nextFiles:
@@ -66,11 +62,13 @@ class MergeIndex:
             self.filesList.pop(word)
             self.postingsList.pop(word)
             self.wordIndex[word] = len(self.fileLines) - 1
+            self.lastWord = word
             self.count += 1
         except:
             pass
 
     def writeToFile(self):
+        self.breakWords.append(self.lastWord)
         fileNo = ceil(self.count / self.pageBreakLimit) - 1
         with open(
             os.path.join(self.indexFolder, "mergedIndex{}.txt".format(fileNo)), "w"
@@ -82,3 +80,21 @@ class MergeIndex:
             fp.write(json.dumps(self.wordIndex))
         self.wordIndex = {}
         self.fileLines = []
+
+    def endMerge(self):
+        if self.fileLines:
+            self.writeToFile()
+            with open(
+                os.path.join(self.indexFolder, "breakWords.txt"), "w"
+            ) as fp:
+                fp.write("\n".join(self.breakWords))
+            print(
+                "[wiki-engine-indexer]: Epoch {0} completed...{1} words merged".format(
+                    ceil(self.count / self.pageBreakLimit) - 1, self.count
+                )
+            )
+        print(
+            "[wiki-engine-indexer]: Merge process finished...{} words merged".format(
+                self.count
+            )
+        )
