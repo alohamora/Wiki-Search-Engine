@@ -12,7 +12,6 @@ class MergeIndex:
         self.fileOpen = [True for i in range(fileCount)]
         self.postingsList = defaultdict(list)
         self.filesList = defaultdict(list)
-        self.wordIndex = {}
         self.nextFiles = range(fileCount)
         self.indexFolder = indexFolder
         self.fileLines = []
@@ -38,13 +37,13 @@ class MergeIndex:
                 )
         self.endMerge()
 
-
     def pushWords(self):
         for fileInd in self.nextFiles:
             line = self.filePointers[fileInd].readline()
             if line == "":
                 self.fileOpen[fileInd] = False
                 self.filePointers[fileInd].close()
+                os.remove(self.filePointers[fileInd].name)
             else:
                 word, postingListString = line.split(":")
                 self.postingsList[word].append(postingListString[:-1].strip("[]"))
@@ -61,7 +60,6 @@ class MergeIndex:
             )
             self.filesList.pop(word)
             self.postingsList.pop(word)
-            self.wordIndex[word] = len(self.fileLines) - 1
             self.lastWord = word
             self.count += 1
         except:
@@ -74,19 +72,12 @@ class MergeIndex:
             os.path.join(self.indexFolder, "mergedIndex{}.txt".format(fileNo)), "w"
         ) as fp:
             fp.write("\n".join(self.fileLines))
-        with open(
-            os.path.join(self.indexFolder, "wordOffset{}.txt".format(fileNo)), "w"
-        ) as fp:
-            fp.write(json.dumps(self.wordIndex))
-        self.wordIndex = {}
         self.fileLines = []
 
     def endMerge(self):
         if self.fileLines:
             self.writeToFile()
-            with open(
-                os.path.join(self.indexFolder, "breakWords.txt"), "w"
-            ) as fp:
+            with open(os.path.join(self.indexFolder, "breakWords.txt"), "w") as fp:
                 fp.write("\n".join(self.breakWords))
             print(
                 "[wiki-engine-indexer]: Epoch {0} completed...{1} words merged".format(

@@ -91,12 +91,12 @@ class Indexer(Process):
         with open(
             os.path.join(self.indexFolder, "index{}.txt".format(self.offset)), "w"
         ) as fp:
-            fp.write(self.sortAndConvertDict(self.invertedIndex))
+            fp.write("\n".join(self.sortAndConvertDict(self.invertedIndex)))
 
         with open(
             os.path.join(self.indexFolder, "title{}.txt".format(self.offset)), "w"
         ) as fp:
-            fp.write(self.sortAndConvertDict(self.pageTitleMapping))
+            fp.write("\n".join(self.sortAndConvertDict(self.pageTitleMapping)))
 
     def createIndex(self, parsedWords, docInd):
         words = defaultdict(int)
@@ -113,9 +113,9 @@ class Indexer(Process):
 
     @staticmethod
     def sortAndConvertDict(dictionary):
-        ret = ""
+        ret = []
         for key in sorted(dictionary.keys()):
-            ret += "{0}:{1}\n".format(key, dictionary[key])
+            ret.append("{0}:{1}".format(key, dictionary[key]))
         return ret
 
     @staticmethod
