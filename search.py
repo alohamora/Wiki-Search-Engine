@@ -11,13 +11,12 @@ from index import DocHandler
 
 
 class SearchEngine:
-    def __init__(self, indexFolder, breakWords, indexPageLength, titlePageLength):
+    def __init__(self, indexFolder, breakWords, npages, titlePageLength):
         self.indexFolder = indexFolder
         self.breakWords = breakWords
         self.docHandler = DocHandler()
-        self.indexPageLength = indexPageLength
         self.titlePageLength = titlePageLength
-        self.nfiles = float(19567269)
+        self.npages = float(npages)
         self.fields = {
             "t" : 1,
             "b" : 0.25,
@@ -40,7 +39,6 @@ class SearchEngine:
                     for word in parsedQuery[key]:
                         documentDict[bisect.bisect_left(self.breakWords, word)].append(word)
                         wordFields[word].append(key[0])
-                        print(word, wordFields[word])
  
         invertedIndex = self.getPostingsList(documentDict)
         searchResults = self.pageRank(wordFields, invertedIndex)
@@ -80,7 +78,7 @@ class SearchEngine:
                         score += char
                 if field in wordFields[word]:
                     docScore += self.fields[field] * log(float(score))
-                docRanking[docId] += docScore * log(self.nfiles / float(len(postingList)))
+                docRanking[docId] += docScore * log(self.npages / float(len(postingList)))
         sortedDocs = sorted(docRanking.items(), key = lambda kv: kv[1], reverse = True)
         return self.getTitles([int(x[0]) for x in sortedDocs[:10]])
 
@@ -128,7 +126,7 @@ def search(indexFolder):
     breakWords = None
     with open(os.path.join(indexFolder, "breakWords.txt")) as fp:
         breakWords = [word[:-1] for word in fp.readlines()]
-    searchEngine = SearchEngine(indexFolder, breakWords, 100000, 20000)
+    searchEngine = SearchEngine(indexFolder, breakWords, 19567269, 20000)
     while(True):
         query = input("Type in your query: ")
         start_time = timeit.default_timer()
