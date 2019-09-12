@@ -2,84 +2,141 @@ import os
 import re
 import json
 import sys
-from collections import Counter
+import signal
+import bisect
+import timeit
+from math import floor, log
+from collections import Counter, defaultdict
 from index import DocHandler
 
 
 class SearchEngine:
-    def __init__(self, inverted_index, pageTitleMapping):
-        self.inverted_index = inverted_index
-        self.pageTitleMapping = pageTitleMapping
-        self.docs_id = []
+    def __init__(self, indexFolder, breakWords, indexPageLength, titlePageLength):
+        self.indexFolder = indexFolder
+        self.breakWords = breakWords
+        self.docHandler = DocHandler()
+        self.indexPageLength = indexPageLength
+        self.titlePageLength = titlePageLength
+        self.nfiles = float(19567269)
+        self.fields = {
+            "t" : 1,
+            "b" : 0.25,
+            "i" : 0.2,
+            "c" : 0.1,
+            "r" : 0.05,
+            "l" : 0.05
+        }
 
-    def searchQuery(self, query):
-        parsed_query = self.parseQuery(query.lower())
-        docHandler = DocHandler()
-        for key, val in parsed_query.items():
-            self.add_documents(key, docHandler.processRawText(" ".join(val)))
-        documentSet = Counter(self.docs_id)
-        searchResultIds = sorted(documentSet.items(), key=lambda x: x[1], reverse=True)
-        searchResultsTitles = []
-        for docId, count in searchResultIds[:10]:
-            searchResultsTitles.append(self.pageTitleMapping[docId])
-        self.docs_id.clear()
-        return searchResultsTitles
+    def getSearchResults(self, parsedQuery):
+        documentDict = defaultdict(list)
+        wordFields = defaultdict(list)
+        if parsedQuery["type"] == 2:
+            for word in parsedQuery["document"]:
+                documentDict[bisect.bisect_left(self.breakWords, word)].append(word)
+                wordFields[word].extend(list(self.fields.keys()))
+        else:
+            for key in parsedQuery:
+                if key != "type":
+                    for word in parsedQuery[key]:
+                        documentDict[bisect.bisect_left(self.breakWords, word)].append(word)
+                        wordFields[word].append(key[0])
+                        print(word, wordFields[word])
+ 
+        invertedIndex = self.getPostingsList(documentDict)
+        searchResults = self.pageRank(wordFields, invertedIndex)
+        return searchResults
 
-    def add_documents(self, __type, queryWords):
-        for word in queryWords:
-            if word in self.inverted_index:
-                for x in self.inverted_index[word]:
-                    if __type != "document" and __type[0] in x:
-                        self.docs_id.append(re.split("b|t|r|c|l|i", x)[0])
-                    elif __type == "document":
-                        self.docs_id.append(re.split("b|t|r|c|l|i", x)[0])
+    def getPostingsList(self, documentDict):
+        invertedIndex = defaultdict(list)
+        for doc in documentDict.keys():
+            wordOffset = {}
+            with open(os.path.join(self.indexFolder, "wordOffset{}.txt".format(doc))) as fp:
+                wordOffset = json.load(fp)
+            with open(os.path.join(self.indexFolder, "mergedIndex{}.txt".format(doc))) as fp:
+                for word in documentDict[doc]:
+                    if word in wordOffset:
+                        fp.seek(wordOffset[word], 0)
+                        postingList = fp.readline()
+                        invertedIndex[word] = postingList[:-1].split(",")
+        return invertedIndex
+
+    def pageRank(self, wordFields, invertedIndex):
+        docRanking = defaultdict(float)
+        for word in invertedIndex:
+            postingList = invertedIndex[word]
+            for x in postingList:
+                x = x.strip(" '")
+                docId = re.split("b|t|r|c|l|i", x)[0]
+                docScore = 0.0
+                field = x[len(docId)]
+                score = ""
+                for char in x[len(docId)+1:]:
+                    if char in self.fields:
+                        if field in wordFields[word]:
+                            docScore += self.fields[field] * float(score)
+                        score = ""
+                        field = char
+                    else:
+                        score += char
+                if field in wordFields[word]:
+                    docScore += self.fields[field] * log(float(score))
+                docRanking[docId] += docScore * log(self.nfiles / float(len(postingList)))
+        sortedDocs = sorted(docRanking.items(), key = lambda kv: kv[1], reverse = True)
+        return self.getTitles([int(x[0]) for x in sortedDocs[:10]])
+
+    def getTitles(self, docIds):
+        titleDocs = defaultdict(list)
+        titles = {}
+        for doc in docIds:
+            fileNo = floor(doc / self.titlePageLength)
+            titleDocs[fileNo].append(doc)
+        for fileNo in titleDocs:
+            with open(os.path.join(self.indexFolder, "title{}.txt".format(fileNo)), "r") as fp:
+                for i in range(1, self.titlePageLength + 1):
+                    line = fp.readline()
+                    ind = (i + (fileNo*self.titlePageLength))
+                    if ind in titleDocs[fileNo]:
+                        titles[ind] = line[len(str(ind))+1:-1]
+        results = []
+        for doc in docIds:
+            results.append(titles[doc])
+        return results
 
     def parseQuery(self, query):
         parsedQuery = {}
-        if re.match(r"title|body|infobox|category|ref|link:", query):
+        if re.match(r"title:|body:|infobox:|category:|ref|link:", query):
             parsedObjects = query.split(":")
             prevType = parsedObjects[0]
             for ind in range(1, len(parsedObjects)):
-                parsedText = [
-                    word for word in parsedObjects[ind].split(" ") if word != ""
-                ]
-                parsedQuery[prevType] = (
-                    parsedText[:-1] if ind != (len(parsedObjects) - 1) else parsedText
-                )
+                parsedText = parsedObjects[ind].split()
+                queryText = parsedText[:-1] if ind != (len(parsedObjects) - 1) else parsedText
+                processedText = self.docHandler.processRawText(" ".join(queryText))
+                parsedQuery[prevType] = processedText
                 prevType = parsedText[-1]
-            __type = 1
+            parsedQuery["type"] = 1
         else:
-            parsedQuery["document"] = [word for word in query.split(" ") if word != ""]
+            parsedQuery["document"] = self.docHandler.processRawText(query)
+            parsedQuery["type"] = 2
         return parsedQuery
 
+def signalHandler(signalNumber, frame):
+    print("")
+    sys.exit("----- Exiting Search engine -----")
 
-def read_file(testfile):
-    with open(testfile, "r") as file:
-        queries = file.readlines()
-    return queries
-
-
-def write_file(outputs, path_to_output):
-    with open(path_to_output, "w") as file:
-        for output in outputs:
-            for line in output:
-                file.write(line.strip() + "\n")
-            file.write("\n")
-
-
-def search(indexFolder, queryFile, outputFile):
-    inverted_index = None
-    pageTitleMapping = None
-    searchResults = []
-    with open(os.path.join(indexFolder, "inverted_index.txt"), "r") as fp:
-        inverted_index = json.load(fp)
-    with open(os.path.join(indexFolder, "title.txt"), "r") as fp:
-        pageTitleMapping = json.load(fp)
-    engine = SearchEngine(inverted_index, pageTitleMapping)
-    for query in read_file(queryFile):
-        searchResults.append(engine.searchQuery(query))
-    write_file(searchResults, outputFile)
-
+def search(indexFolder):
+    signal.signal(signal.SIGINT, signalHandler)
+    breakWords = None
+    with open(os.path.join(indexFolder, "breakWords.txt")) as fp:
+        breakWords = [word[:-1] for word in fp.readlines()]
+    searchEngine = SearchEngine(indexFolder, breakWords, 100000, 20000)
+    while(True):
+        query = input("Type in your query: ")
+        start_time = timeit.default_timer()
+        parsedQuery = searchEngine.parseQuery(query.lower())
+        searchResults = searchEngine.getSearchResults(parsedQuery)
+        for result in searchResults:
+            print(result)
+        print("-----Response time: {}-----".format(timeit.default_timer() - start_time))
 
 if __name__ == "__main__":
-    search(sys.argv[1], sys.argv[2], sys.argv[3])
+    search(sys.argv[1])

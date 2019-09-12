@@ -17,6 +17,8 @@ class MergeIndex:
         self.fileLines = []
         self.lastWord = None
         self.count = 0
+        self.fileOffset = 0
+        self.wordOffset = {}
         self.pageBreakLimit = 100000
         self.breakWords = []
 
@@ -55,12 +57,12 @@ class MergeIndex:
             word = min(self.words)
             self.words.remove(word)
             self.nextFiles = self.filesList[word]
-            self.fileLines.append(
-                "{0}:{1}".format(word, ",".join(self.postingsList[word]))
-            )
+            self.fileLines.append(",".join(self.postingsList[word]))
+            self.wordOffset[word] = self.fileOffset
             self.filesList.pop(word)
             self.postingsList.pop(word)
             self.lastWord = word
+            self.fileOffset += len(self.fileLines[-1]) + 1
             self.count += 1
         except:
             pass
@@ -72,6 +74,12 @@ class MergeIndex:
             os.path.join(self.indexFolder, "mergedIndex{}.txt".format(fileNo)), "w"
         ) as fp:
             fp.write("\n".join(self.fileLines))
+        with open(
+            os.path.join(self.indexFolder, "wordOffset{}.txt".format(fileNo)), "w"
+        ) as fp:
+            fp.write(json.dumps(self.wordOffset))
+        self.wordOffset = {}
+        self.fileOffset = 0
         self.fileLines = []
 
     def endMerge(self):
