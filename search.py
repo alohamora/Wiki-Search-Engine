@@ -5,6 +5,7 @@ import sys
 import signal
 import bisect
 import timeit
+import random
 from math import floor, log
 from collections import Counter, defaultdict
 from index import DocHandler
@@ -18,7 +19,7 @@ class SearchEngine:
         self.titlePageLength = titlePageLength
         self.npages = float(npages)
         self.fields = {
-            "t" : 1,
+            "t" : 1.0,
             "b" : 0.25,
             "i" : 0.2,
             "c" : 0.1,
@@ -62,6 +63,7 @@ class SearchEngine:
         docRanking = defaultdict(float)
         for word in invertedIndex:
             postingList = invertedIndex[word]
+            idf = log(self.npages / float(len(postingList)))
             for x in postingList:
                 x = x.strip(" '")
                 docId = re.split("b|t|r|c|l|i", x)[0]
@@ -71,14 +73,14 @@ class SearchEngine:
                 for char in x[len(docId)+1:]:
                     if char in self.fields:
                         if field in wordFields[word]:
-                            docScore += self.fields[field] * float(score)
+                            docScore += self.fields[field] * (1.0 + log(float(score)))
                         score = ""
                         field = char
                     else:
                         score += char
                 if field in wordFields[word]:
-                    docScore += self.fields[field] * log(float(score))
-                docRanking[docId] += docScore * log(self.npages / float(len(postingList)))
+                    docScore += self.fields[field] * (1.0 + log(float(score)))
+                docRanking[docId] += docScore * idf
         sortedDocs = sorted(docRanking.items(), key = lambda kv: kv[1], reverse = True)
         return self.getTitles([int(x[0]) for x in sortedDocs[:10]])
 
